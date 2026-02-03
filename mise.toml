@@ -57,7 +57,7 @@ run = "cargo fmt --all -- --check"
 
 [tasks.test]
 description = "Run all tests (Rust + Python)"
-depends = ["test:rust", "test:python"]
+depends = ["test:rust", "test:python", "test:e2e:sandbox"]
 
 [tasks."test:rust"]
 description = "Run Rust tests"
@@ -66,6 +66,21 @@ run = "cargo test --workspace"
 [tasks."test:python"]
 description = "Run Python tests"
 run = "uv run pytest python/"
+
+[tasks."test:e2e:sandbox"]
+description = "Run sandbox e2e tests via skaffold verify"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+BUILD_FILE=".skaffold-build.json"
+
+mise -C kube run start
+export DOCKER_BUILDKIT=1
+skaffold build -q --file-output="${BUILD_FILE}" -p e2e-sandbox
+skaffold deploy --build-artifacts="${BUILD_FILE}" --load-images -p e2e-sandbox
+skaffold verify --build-artifacts="${BUILD_FILE}" -p e2e-sandbox
+"""
 
 # ============================================================================
 # Python Tasks

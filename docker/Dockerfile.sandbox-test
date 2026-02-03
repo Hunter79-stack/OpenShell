@@ -1,0 +1,62 @@
+# syntax=docker/dockerfile:1.4
+# Sandbox E2E test container
+
+# Stage 1: Rust builder
+FROM rust:1.88-slim AS rust-builder
+ARG RUST_BUILD_PROFILE=debug
+
+# Install build dependencies for protobuf-src
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake \
+    g++ \
+    make \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+COPY proto/ proto/
+RUN if [ "$RUST_BUILD_PROFILE" = "release" ]; then \
+        cargo build --release --package navigator-sandbox; \
+    else \
+        cargo build --package navigator-sandbox; \
+    fi && \
+    mkdir -p /build/out && \
+    cp /build/target/${RUST_BUILD_PROFILE}/navigator-sandbox /build/out/
+
+# Stage 2: Final image
+FROM python:3.12-slim AS final
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+RUN uv venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+RUN uv pip install pytest
+
+RUN groupadd -r sandbox && useradd -r -g sandbox -s /usr/sbin/nologin sandbox
+
+COPY --from=rust-builder /build/out/navigator-sandbox /usr/local/bin/
+COPY dev-sandbox-policy.yaml /var/navigator/policy.yaml
+COPY docker/sandbox-test/run-tests.sh /app/run-tests.sh
+COPY tests/sandbox_e2e/ /app/tests/
+
+RUN mkdir -p /sandbox /var/log /var/navigator && \
+    touch /var/log/navigator.log && \
+    chmod 0664 /var/log/navigator.log && \
+    chown sandbox:sandbox /sandbox && \
+    chmod +x /app/run-tests.sh
+
+ENV NAVIGATOR_SANDBOX_POLICY=/var/navigator/policy.yaml
+
+ENTRYPOINT ["/app/run-tests.sh"]

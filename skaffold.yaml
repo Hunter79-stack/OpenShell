@@ -7,8 +7,12 @@ build:
     - image: navigator-registry:5000/navigator-server
       docker:
         dockerfile: docker/Dockerfile.server
+    - image: navigator-registry:5000/sandbox-test-container
+      docker:
+        dockerfile: docker/Dockerfile.sandbox-test
   local:
     push: true
+    useBuildkit: true
 deploy:
   helm:
     releases:
@@ -19,3 +23,15 @@ deploy:
 manifests:
   rawYaml:
     - https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v0.1.0/manifest.yaml
+verify:
+  - name: sandbox-e2e
+    container:
+      name: sandbox-test-container
+      image: navigator-registry:5000/sandbox-test-container
+    executionMode:
+      kubernetesCluster: {}
+profiles:
+  - name: e2e-sandbox
+    build:
+      local:
+        push: false
